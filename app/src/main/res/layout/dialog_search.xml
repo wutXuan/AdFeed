@@ -18,9 +18,12 @@
             android:id="@+id/edit_query"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="2"
+            android:imeOptions="flagNoExtractUi"
+            android:inputType="textMultiLine|textCapSentences"
+            android:maxLines="3"
+            android:minLines="1"
+            android:scrollHorizontally="false"
+            android:singleLine="false"
             tools:text="适合学生党的运动装备" />
     </com.google.android.material.textfield.TextInputLayout>
 

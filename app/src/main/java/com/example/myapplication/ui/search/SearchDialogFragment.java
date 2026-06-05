@@ -1,12 +1,14 @@
 package com.example.myapplication.ui.search;
 
 import android.app.Dialog;
+import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.inputmethod.EditorInfo;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -48,12 +50,15 @@ public class SearchDialogFragment extends DialogFragment {
         binding.recyclerSearchResults.setLayoutManager(new LinearLayoutManager(requireContext()));
         binding.recyclerSearchResults.setAdapter(adapter);
         binding.buttonSearch.setOnClickListener(v -> search());
-        binding.editQuery.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                search();
-                return true;
+        binding.editQuery.requestFocus();
+        binding.editQuery.post(() -> {
+            if (binding == null) {
+                return;
             }
-            return false;
+            InputMethodManager imm = (InputMethodManager) requireContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(binding.editQuery, InputMethodManager.SHOW_IMPLICIT);
+            }
         });
     }
 
@@ -65,6 +70,8 @@ public class SearchDialogFragment extends DialogFragment {
             Window window = dialog.getWindow();
             if (window != null) {
                 window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             }
         }
     }
