@@ -3,6 +3,7 @@ package com.example.myapplication.ai;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.example.myapplication.BuildConfig;
 import com.example.myapplication.model.AdItem;
@@ -12,17 +13,21 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.OkHttpClient;
 import okhttp3.logging.HttpLoggingInterceptor;
@@ -33,6 +38,10 @@ import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 public class AiRepository {
+    private static final String TAG = "AiRepository";
+    private static final int MAX_RETRY_COUNT = 3;
+    private static final long DEAD_LETTER_ACK_DELAY_MS = 60_000L;
+
     public interface ResultCallback<T> {
         void onSuccess(T result);
 
@@ -43,10 +52,16 @@ public class AiRepository {
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final ScheduledExecutorService queueExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final Object queueLock = new Object();
+    private final Queue<AiQueueTask<?>> messageQueue = new ArrayDeque<>();
+    private final Map<String, AiQueueTask<?>> deadLetterQueue = new HashMap<>();
+    private final AtomicInteger taskSequence = new AtomicInteger();
     private final Gson gson = new Gson();
     private final LlmApiService service;
     private final String apiKey;
     private final String model;
+    private boolean queueRunning;
 
     private AiRepository() {
         apiKey = BuildConfig.LLM_API_KEY == null ? "" : BuildConfig.LLM_API_KEY.trim();
@@ -76,6 +91,7 @@ public class AiRepository {
     }
 
     public void generateAdMeta(AdItem adItem, ResultCallback<AiMeta> callback) {
+        Log.d(TAG, "哈哈哈哈1111111");
         if (TextUtils.isEmpty(apiKey)) {
             executor.execute(() -> postSuccess(callback, fallbackMeta(adItem)));
             return;
@@ -90,25 +106,7 @@ public class AiRepository {
                         + "品牌：" + adItem.getBrand() + "\n"
                         + "描述：" + adItem.getDescription() + "\n"
                         + "已有标签：" + TextUtils.join(",", adItem.getTags())));
-        service.chatCompletion("Bearer " + apiKey, request).enqueue(new Callback<LlmModels.ChatCompletionResponse>() {
-            @Override
-            public void onResponse(Call<LlmModels.ChatCompletionResponse> call, Response<LlmModels.ChatCompletionResponse> response) {
-                if (!response.isSuccessful() || response.body() == null) {
-                    postSuccess(callback, fallbackMeta(adItem));
-                    return;
-                }
-                try {
-                    postSuccess(callback, parseMeta(response.body().firstContent(), adItem));
-                } catch (RuntimeException exception) {
-                    postSuccess(callback, fallbackMeta(adItem));
-                }
-            }
-
-            @Override
-            public void onFailure(Call<LlmModels.ChatCompletionResponse> call, Throwable throwable) {
-                postSuccess(callback, fallbackMeta(adItem));
-            }
-        });
+        enqueueAiTask("generateAdMeta", request, content -> parseMeta(content, adItem), callback);
     }
 
     public void searchAds(String message, List<AdItem> candidates, ResultCallback<List<SearchResult>> callback) {
@@ -124,25 +122,116 @@ public class AiRepository {
         request.messages.add(new LlmModels.Message("user",
                 "用户想看：" + message + "\n候选广告：" + toCandidateJson(compactCandidates)
                         + "\n请返回最匹配的 1 到 8 条广告。"));
-        service.chatCompletion("Bearer " + apiKey, request).enqueue(new Callback<LlmModels.ChatCompletionResponse>() {
+        enqueueAiTask("searchAds", request, content -> parseSearch(content, compactCandidates), callback);
+    }
+
+    private <T> void enqueueAiTask(String type,
+                                   LlmModels.ChatCompletionRequest request,
+                                   AiResponseParser<T> parser,
+                                   ResultCallback<T> callback) {
+        AiQueueTask<T> task = new AiQueueTask<>(
+                "ai-" + taskSequence.incrementAndGet(),
+                type,
+                request,
+                parser,
+                callback
+        );
+        synchronized (queueLock) {
+            messageQueue.offer(task);
+            Log.d(TAG, "mq enqueue id=" + task.id + " type=" + task.type + " size=" + messageQueue.size());
+            if (!queueRunning) {
+                queueRunning = true;
+                queueExecutor.execute(this::consumeNextTask);
+            }
+        }
+    }
+
+    private void consumeNextTask() {
+        AiQueueTask<?> task;
+        synchronized (queueLock) {
+            task = messageQueue.poll();
+            if (task == null) {
+                queueRunning = false;
+                return;
+            }
+        }
+        Log.d(TAG, "mq consume id=" + task.id + " type=" + task.type + " attempt=" + (task.retryCount + 1));
+        runAiTask(task);
+    }
+
+    private <T> void runAiTask(AiQueueTask<T> task) {
+        service.chatCompletion("Bearer " + apiKey, task.request).enqueue(new Callback<LlmModels.ChatCompletionResponse>() {
             @Override
             public void onResponse(Call<LlmModels.ChatCompletionResponse> call, Response<LlmModels.ChatCompletionResponse> response) {
                 if (!response.isSuccessful() || response.body() == null) {
-                    postSuccess(callback, fallbackSearch(message, candidates));
+                    retryOrDeadLetter(task, new IllegalStateException("AI response invalid, code=" + response.code()));
                     return;
                 }
                 try {
-                    postSuccess(callback, parseSearch(response.body().firstContent(), compactCandidates));
+                    T result = task.parser.parse(response.body().firstContent());
+                    Log.d(TAG, "mq success id=" + task.id + " type=" + task.type);
+                    postSuccess(task.callback, result);
+                    scheduleNextTask();
                 } catch (RuntimeException exception) {
-                    postSuccess(callback, fallbackSearch(message, candidates));
+                    retryOrDeadLetter(task, exception);
                 }
             }
 
             @Override
             public void onFailure(Call<LlmModels.ChatCompletionResponse> call, Throwable throwable) {
-                postSuccess(callback, fallbackSearch(message, candidates));
+                retryOrDeadLetter(task, throwable);
             }
         });
+    }
+
+    private void retryOrDeadLetter(AiQueueTask<?> task, Throwable throwable) {
+        if (task.retryCount < MAX_RETRY_COUNT) {
+            task.retryCount++;
+            synchronized (queueLock) {
+                messageQueue.offer(task);
+                Log.w(TAG, "mq retry id=" + task.id
+                        + " type=" + task.type
+                        + " retry=" + task.retryCount + "/" + MAX_RETRY_COUNT
+                        + " size=" + messageQueue.size()
+                        + " cause=" + describe(throwable));
+            }
+        } else {
+            moveToDeadLetter(task, throwable);
+        }
+        scheduleNextTask();
+    }
+
+    private void moveToDeadLetter(AiQueueTask<?> task, Throwable throwable) {
+        synchronized (queueLock) {
+            deadLetterQueue.put(task.id, task);
+        }
+        Log.w(TAG, "mq dead-letter id=" + task.id
+                + " type=" + task.type
+                + " attempts=" + (task.retryCount + 1)
+                + " cause=" + describe(throwable));
+        queueExecutor.schedule(() -> ackDeadLetter(task), DEAD_LETTER_ACK_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void ackDeadLetter(AiQueueTask<?> task) {
+        boolean removed;
+        synchronized (queueLock) {
+            removed = deadLetterQueue.remove(task.id) != null;
+        }
+        if (removed) {
+            Log.d(TAG, "mq xack dead-letter id=" + task.id + " type=" + task.type);
+        }
+    }
+
+    private void scheduleNextTask() {
+        queueExecutor.execute(this::consumeNextTask);
+    }
+
+    private String describe(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown";
+        }
+        String message = throwable.getMessage();
+        return throwable.getClass().getSimpleName() + (TextUtils.isEmpty(message) ? "" : ": " + message);
     }
 
     private AiMeta parseMeta(String content, AdItem adItem) {
@@ -332,6 +421,31 @@ public class AiRepository {
             return "https://api.openai.com/";
         }
         return baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+    }
+
+    private interface AiResponseParser<T> {
+        T parse(String content);
+    }
+
+    private static class AiQueueTask<T> {
+        final String id;
+        final String type;
+        final LlmModels.ChatCompletionRequest request;
+        final AiResponseParser<T> parser;
+        final ResultCallback<T> callback;
+        int retryCount;
+
+        AiQueueTask(String id,
+                    String type,
+                    LlmModels.ChatCompletionRequest request,
+                    AiResponseParser<T> parser,
+                    ResultCallback<T> callback) {
+            this.id = id;
+            this.type = type;
+            this.request = request;
+            this.parser = parser;
+            this.callback = callback;
+        }
     }
 
     private static class ScoredAd {
