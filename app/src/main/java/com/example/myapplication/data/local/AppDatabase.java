@@ -6,7 +6,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 
 public class AppDatabase extends SQLiteOpenHelper {
     private static final String DATABASE_NAME = "ai_ad_feed.db";
-    private static final int DATABASE_VERSION = 1;
+    private static final int DATABASE_VERSION = 2;
     private static volatile AppDatabase instance;
     private final AdDao adDao = new AdDao(this);
 

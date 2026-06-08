@@ -294,14 +294,31 @@ public class AdRepository {
     }
 
     private void seedIfNeeded() {
-        if (adDao.countAds() > 0) {
-            return;
-        }
         List<AdEntity> entities = new ArrayList<>();
         for (AdItem item : MockAds.create()) {
             entities.add(AdEntity.fromItem(item));
         }
+        if (adDao.countAds() > 0) {
+            refreshSeedMedia(entities);
+            return;
+        }
         adDao.upsertAds(entities);
+    }
+
+    private void refreshSeedMedia(List<AdEntity> seedAds) {
+        for (AdEntity seedAd : seedAds) {
+            AdEntity existing = adDao.getAd(seedAd.id);
+            if (existing == null) {
+                List<AdEntity> single = new ArrayList<>();
+                single.add(seedAd);
+                adDao.upsertAds(single);
+                continue;
+            }
+            if (!TextUtils.equals(existing.mediaUrl, seedAd.mediaUrl)
+                    || !TextUtils.equals(existing.thumbnailUrl, seedAd.thumbnailUrl)) {
+                adDao.updateMedia(seedAd.id, seedAd.mediaUrl, seedAd.thumbnailUrl);
+            }
+        }
     }
 
     private List<AdItem> query(String channel, String tag, int offset, int limit) {

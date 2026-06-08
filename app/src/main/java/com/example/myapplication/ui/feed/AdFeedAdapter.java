@@ -16,10 +16,10 @@ import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.ListAdapter;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.bumptech.glide.Glide;
 import com.example.myapplication.R;
 import com.example.myapplication.media.PlayerPool;
 import com.example.myapplication.model.AdItem;
+import com.example.myapplication.ui.common.AdImageLoader;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
@@ -139,12 +139,7 @@ public class AdFeedAdapter extends ListAdapter<AdItem, RecyclerView.ViewHolder> 
             buttonShare.setText("分享");
             buttonLike.setSelected(item.isLiked());
             buttonCollect.setSelected(item.isCollected());
-            Glide.with(imageMedia)
-                    .load(item.getThumbnailUrl())
-                    .centerCrop()
-                    .placeholder(android.R.color.darker_gray)
-                    .error(android.R.color.darker_gray)
-                    .into(imageMedia);
+            AdImageLoader.load(imageMedia, item);
             renderTags(chipGroupTags, item, listener);
             cardRoot.setOnClickListener(v -> listener.onOpenAd(item));
             buttonLike.setOnClickListener(v -> {

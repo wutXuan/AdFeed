@@ -67,7 +67,7 @@
                 android:layout_marginStart="12dp"
                 android:background="#E7EBF2"
                 android:contentDescription="@null"
-                android:scaleType="centerCrop" />
+                android:scaleType="fitXY" />
         </LinearLayout>
 
         <com.google.android.material.chip.ChipGroup
