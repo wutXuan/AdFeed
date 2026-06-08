@@ -35,7 +35,7 @@
                 android:layout_height="match_parent"
                 android:background="#E7EBF2"
                 android:contentDescription="@null"
-                android:scaleType="centerCrop" />
+                android:scaleType="fitXY" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/button_play_video"

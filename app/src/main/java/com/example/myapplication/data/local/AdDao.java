@@ -80,6 +80,13 @@ public class AdDao {
         database.getWritableDatabase().update("ads", values, "id = ?", new String[]{id});
     }
 
+    public void updateMedia(String id, String mediaUrl, String thumbnailUrl) {
+        ContentValues values = new ContentValues();
+        values.put("mediaUrl", mediaUrl);
+        values.put("thumbnailUrl", thumbnailUrl);
+        database.getWritableDatabase().update("ads", values, "id = ?", new String[]{id});
+    }
+
     public void insertTelemetry(TelemetryEntity event) {
         ContentValues values = new ContentValues();
         values.put("adId", event.adId);

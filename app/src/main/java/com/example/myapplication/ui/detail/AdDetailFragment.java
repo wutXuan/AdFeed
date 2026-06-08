@@ -15,10 +15,10 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
 
-import com.bumptech.glide.Glide;
 import com.example.myapplication.R;
 import com.example.myapplication.databinding.FragmentAdDetailBinding;
 import com.example.myapplication.model.AdItem;
+import com.example.myapplication.ui.common.AdImageLoader;
 import com.google.android.material.chip.Chip;
 
 public class AdDetailFragment extends Fragment {
@@ -77,24 +77,14 @@ public class AdDetailFragment extends Fragment {
             binding.playerDetail.setVisibility(View.GONE);
             binding.buttonDetailMute.setVisibility(View.GONE);
             binding.imageDetail.setVisibility(View.VISIBLE);
-            Glide.with(binding.imageDetail)
-                    .load(item.getMediaUrl())
-                    .centerCrop()
-                    .placeholder(android.R.color.darker_gray)
-                    .error(android.R.color.darker_gray)
-                    .into(binding.imageDetail);
+            AdImageLoader.load(binding.imageDetail, item);
         }
     }
 
     private void showVideo(AdItem item) {
-        Glide.with(binding.imageDetail)
-                .load(item.getThumbnailUrl())
-                .centerCrop()
-                .placeholder(android.R.color.darker_gray)
-                .error(android.R.color.darker_gray)
-                .into(binding.imageDetail);
-        binding.imageDetail.setVisibility(View.GONE);
-        binding.playerDetail.setVisibility(View.VISIBLE);
+        AdImageLoader.load(binding.imageDetail, item);
+        binding.imageDetail.setVisibility(View.VISIBLE);
+        binding.playerDetail.setVisibility(View.GONE);
         binding.buttonDetailMute.setVisibility(View.VISIBLE);
         if (player == null || !item.getId().equals(currentVideoId)) {
             releasePlayer();

@@ -23,7 +23,7 @@
             android:layout_height="210dp"
             android:background="#E7EBF2"
             android:contentDescription="@null"
-            android:scaleType="centerCrop" />
+            android:scaleType="fitXY" />
 
         <LinearLayout
             android:layout_width="match_parent"

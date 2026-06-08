@@ -24,7 +24,7 @@
                 android:layout_height="match_parent"
                 android:background="#E7EBF2"
                 android:contentDescription="@null"
-                android:scaleType="centerCrop" />
+                android:scaleType="fitXY" />
 
             <androidx.media3.ui.PlayerView
                 android:id="@+id/player_detail"
